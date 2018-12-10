@@ -24,10 +24,43 @@ drush ev '
     }
 
   }
+  
+  class LockTester {
+    private $name;
+    
+    function __construct($name) {
+      $this->name = $name;
+    }
+    function error($msg) {
+      echo "Lock: name=" . $this->name . " | " . $msg . PHP_EOL;
+    }
+    function runLockTest() {
+      $locks = \Drupal::service("lock");
+      if (!$locks->lockMayBeAvailable($this->name)) {
+        $this->error("Problem: Lock wasnt available (lockMayBeAvailable() == false)");
+        return false;
+      }
+      if (!$locks->acquire($this->name)) {
+        $this->error("Problem: Couldnt acquire() lock");
+        return false;
+      }
+      if (!$locks->acquire($this->name)) {
+        $this->error("Problem: Lock was not properly acquired");
+        return false;
+      }
+      #$locks->release($this->name);
+      #if (!$locks->acquire($this->name)) {
+      #  $this->error("Problem: Lock was not properly released");
+      #  return false;
+      #}
+      return true;
+    }
+
+  }
 
   // Return random string of size $length
   function random_string($length) {
-    return substr(str_shuffle(str_repeat($x="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_", ceil($length/strlen($x)) )),1,$length);
+    return substr(str_shuffle(str_repeat($x="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", ceil($length/strlen($x)) )),1,$length);
   }
 
   $bin = "data";
@@ -55,14 +88,31 @@ drush ev '
     echo "CID of size " . ($bytes + strlen($cid_base)) . " " . ($success ? "FOUND" : "NOT FOUND") . PHP_EOL;
   }
   echo "\n";
+  
+  // LOCK TESTS
+  
+  $name = "onething";
+  $t = new LockTester($name);
+  $success = $t->runLockTest($name);
+  echo "LOCK with name of $name " . ($success ? "SUCCESS" : "FAILURE") . PHP_EOL;
+    
+  echo "Testing locks with various name sizes\n";
+  $cid_base = "TEST_LOCK_NAME_";
+  foreach ( [1, 32, 128, 256, 512, 1024] as $bytes) {
+    $name = $cid_base . random_string($bytes);
+    $t = new LockTester($name);
+    $success = $t->runLockTest($name);
+    echo "LOCK with name of size " . ($bytes + strlen($cid_base)) . " " . ($success ? "SUCCESS" : "FAILURE") . PHP_EOL;
+  }
+  echo "\n";
 '
 
 echo "Analyzing memcache data"
 bash $DIR/memcache-analyzer.sh
 echo ""
 
-echo "Dumping memcache data for items in 'data' bin"
-sort  /tmp/memcache-dump | grep "%3Adata"
-echo ""
+#echo "Dumping memcache data for items in 'data' bin"
+#sort  /tmp/memcache-dump | grep "%3Adata"
+#echo ""
 
 echo "DONE"
