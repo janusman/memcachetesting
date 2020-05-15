@@ -19,11 +19,11 @@ echo "Total memcache items: $num_total"
 #echo "CIDs that are hashes (therefore, can't be analyzed): $num_hashed"
 
 # Number of items by prefix
-(echo "#items prefix"; cat $tmp | egrep -o "^SLAB=[0-9][0-9]* ITEM [a-z][a-z0-9]*" |cut -f3 -d' ' |sort |uniq -c |sort -nr) |column -t
+(echo "#items prefix"; cat $tmp | egrep -o "^SLAB=[0-9][0-9]* ITEM [a-z][a-z0-9\.]*" |cut -f3 -d' ' |sort |uniq -c |sort -nr) |column -t
 echo "" 
 
 # Get prefixes, but sorted by most-to-least frequent
-prefixes=`cat $tmp | egrep -o "^SLAB=[0-9][0-9]* ITEM [a-z][a-z0-9]*" |cut -f3 -d' ' |sort |uniq -c |sort -nr |awk '{print $2 }'`
+prefixes=`cat $tmp | egrep -o "^SLAB=[0-9][0-9]* ITEM [a-z][a-z0-9\.]*" |cut -f3 -d' ' |sort |uniq -c |sort -nr |awk '{print $2 }'`
 for nom in $prefixes
 do
 
