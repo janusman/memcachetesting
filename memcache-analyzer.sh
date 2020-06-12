@@ -119,10 +119,10 @@ echo "Total memcache items: $num_total"
 #  (B) SLAB=2 ITEM hercampus_-cache_menu-.wildcard-admin_menu%3A821856%3A [1 b; 0 s]
 #
 # Detect:
-if [ `head -100 $tmp |egrep -c '^SLAB=[0-9][0-9]* [a-z][a-z]*_'` -gt 0 ]
+if [ `head -100 $tmp |egrep -c '^SLAB=[0-9][0-9]* ITEM [a-z][a-z]*_'` -gt 0 ]
 then
   # Format B
-  cat $tmp |awk -F ' ' '{ slab=substr($1,index($1,"=")+1,2); pos1=index($3, "_-"); prefix=substr($3,1,pos1-2); tmp=substr($3,pos1+2); pos2=index(tmp, "-"); bin=substr(tmp, 1, pos2-1); item=substr(tmp, pos2+1); print slab "\t" prefix "\t" bin "\t" item}' >$tmp_parsed
+  cat $tmp |awk -F ' ' '{ slab=substr($1,index($1,"=")+1,2); pos1=index($3, "_-"); prefix=substr($3,1,pos1-1); tmp=substr($3,pos1+2); pos2=index(tmp, "-"); bin=substr(tmp, 1, pos2-1); item=substr(tmp, pos2+1); print slab "\t" prefix "\t" bin "\t" item}' >$tmp_parsed
 else
   # Format A
   cat $tmp | awk -F ' ' '{ slab=substr($1,index($1,"=")+1,2); pos1=index($3, "%3A"); prefix=substr($3,1,pos1-2); tmp=substr($3,pos1+3); pos2=index(tmp, "%3A"); bin=substr(tmp, 1, pos2-1); item=substr(tmp, pos2+4); print slab "\t" prefix "\t" bin "\t" item}' >$tmp_parsed
