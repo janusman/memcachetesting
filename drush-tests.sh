@@ -3,10 +3,11 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
 
 echo "Run this script from within the Drupal installation"
 
-echo "Clearing memcached daemon"
-sudo service memcached restart
-echo ""
+#echo "Clearing memcached daemon"
+#sudo service memcached restart
+#echo ""
 
+#XDEBUG_CONFIG="idekey=session_name" "/opt/lampp/bin/php" "$HOME/.composer/vendor/drush/drush/drush.php" --php="/opt/lampp/bin/php" --php-options=""  ev '
 drush ev '
 
   class CacheTester {
@@ -105,6 +106,9 @@ drush ev '
     echo "LOCK with name of size " . ($bytes + strlen($cid_base)) . " " . ($success ? "SUCCESS" : "FAILURE") . PHP_EOL;
   }
   echo "\n";
+
+  echo "Sleeping for 30 seconds so you can check memcache if needed!\n";
+  sleep(30);
 '
 
 echo "Analyzing memcache data"
