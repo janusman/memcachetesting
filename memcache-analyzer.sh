@@ -2,7 +2,6 @@
 # Memcache analyzer
 
 tmp="/tmp/memcache-dump.$$"
-tmp2="/tmp/memcache-dump-2.$$"
 tmp_parsed="/tmp/memcache-dump-parsed.$$"
 tmp_parsed_prefix="/tmp/memcache-dump-parsed-prefix.$$"
 tmp_stats="/tmp/memcache-stats.$$"
@@ -194,19 +193,12 @@ function parse_dump() {
 }
 parse_dump $tmp >$tmp_parsed
 echo "Parsed file is: $tmp_parsed"
-
-
-# Number of items by prefix
-#(echo "#items prefix"; cat $tmp | egrep -o "^SLAB=[0-9][0-9]* ITEM [a-z][a-z0-9\.]*" |cut -f3 -d' ' |sort |uniq -c |sort -nr) |column -t
-#echo "" 
+echo ""
 
 show_crosstab $tmp_parsed 2 3 Prefix Bin 
 show_crosstab $tmp_parsed 2 1 Prefix Slab
 
-#
-
 # Get prefixes, but sorted by most-to-least frequent
-#prefixes=`cat $tmp | egrep -o "^SLAB=[0-9][0-9]* ITEM [a-z][a-z0-9\.]*" |cut -f3 -d' ' |sort |uniq -c |sort -nr |awk '{print $2 }'`
 prefixes=`cat $tmp_parsed |cut -f2 |sort |uniq -c |sort -nr |awk '{print $2 }'`
 
 for nom in $prefixes
@@ -215,48 +207,25 @@ do
   echo "== Single Prefix analysis: prefix = $nom =================";
   echo ""
 
-  grep "SLAB=[0-9][0-9]* ITEM ${nom}" $tmp >$tmp2
-  
-  parse_dump $tmp2 >$tmp_parsed_prefix
+  # Filter the parsed file just to this bin.
+  awk -v prefix="$nom" '($2==prefix) { print }' $tmp_parsed >$tmp_parsed_prefix
 
-  #show_crosstab $tmp_parsed_prefix 2 3 Prefix Bin
-  #show_crosstab $tmp_parsed_prefix 2 1 Prefix Slab
-  show_crosstab $tmp_parsed 3 1 Cache_Bins Slab
+  # Crosstab.
+  show_crosstab $tmp_parsed_prefix 3 1 Cache_Bins Slab
 
-  # Figure out the data format...
-  #format=dash
-  #if [ `grep -c "SLAB=[0-9][0-9]* ITEM ${nom}_%3A" $tmp2` -gt 0 ]
-  #then
-  #  format=other
-  #fi
-
-
-  #if [ $format = other ]
-  #then
-  #  (echo "#items cache_bin"; cat $tmp2 | cut -f2 -d% |cut -c3- |sed -e 's/ .*$//g' |sort |uniq -c |sort -nr |head -20) | column -t
-  #else
-  #  (echo "#items cache_bin"; cat $tmp2 | cut -f2 -d- |sed -e 's/ .*$//g' |sort |uniq -c |sort -nr |head -20) | column -t
-  #fi
-
-  #echo ""
-
-  #(echo "#items bin_size"; cat $tmp2|egrep -o '\[[1-9][0-9]* b;' |awk 'function doround(val) { power=1; while (power<val) { power=power*2; } return power; } { size=substr($1,2)+0; bin=doround(size); count[bin]++ } END { for (i in count) { if (count[i]>1) printf("%d %d\n",count[i], i) } }' |sort -nr -t' ' -k2) |column -t
-
-  #echo ""
-
+  # Top Patterns.
   echo "Top patterns observed:"
-
-  (echo "# pattern"; cat $tmp2 |awk 'length($0) < 300 { print }' | cut -f2- -d_ |cut -f1 -d' ' | php -r '$result = urldecode(trim(stream_get_contents(STDIN))); print_r($result);' |sed -e 's/\.html_[a-zA-Z0-9_-]\{6,100\}/.html_{hash-value}/g' |sed -e 's/\.html\.twig_[a-zA-Z0-9_-]\{6,100\}/.html.twig_{hash-value}/g' | sed -e 's/[0-9a-f]\{6,100\}/{hex-hash-value}/g' -e 's/:[a-zA-Z0-9_-]*[A-Z][a-zA_Z0-9_-]*/:{hash}/g' | sed -e 's/^views_data:[a-z0-9_]\{2,50\}/views_data:{view-id}/g'  | sed -e 's/^views\.view\.[a-z0-9_]\{2,50\}/views.view.{view-id}/g' |sed -e 's/[0-9][0-9]*/{num}/g' |cut -c2- |sort |uniq -c |sort -nr |head -20) |column -t
+  (echo "# Cache_bin => Pattern"; echo "---- ---- -- ----"; awk '{ print $3 " => " $4 }' $tmp_parsed_prefix |awk 'length($0) < 300 { print }' | php -r '$result = urldecode(trim(stream_get_contents(STDIN))); print_r($result);' |sed -e 's/\.html_[a-zA-Z0-9_-]\{6,100\}/.html_{hash-value}/g' |sed -e 's/\.html\.twig_[a-zA-Z0-9_-]\{6,100\}/.html.twig_{hash-value}/g' | sed -e 's/[0-9a-f]\{6,100\}/{hex-hash-value}/g' -e 's/:[a-zA-Z0-9_-]*[A-Z][a-zA_Z0-9_-]*/:{hash}/g' | sed -e 's/^views_data:[a-z0-9_]\{2,50\}/views_data:{view-id}/g'  | sed -e 's/^views\.view\.[a-z0-9_]\{2,50\}/views.view.{view-id}/g' |sed -e 's/[0-9][0-9]*/{num}/g' |sort |uniq -c |sort -nr |head -20) |column -t
   echo ""
 done
 
-# Get stats
+# Get slab stats
 echo stats slabs |nc localhost 11211 |grep "STAT [0-9]" |tr ':' ' ' |egrep "[^_](chunk_size|chunks_per_page|cmd_set|delete_hits|free_chunks|get_hits|mem_requested|total_chunks|total_pages|used_chunks)[^_]" >$tmp_stats
 show_crosstab $tmp_stats 3 2 Stats_slab Slab 4 _ROW_,chunk_size,chunks_per_page
 
-# Get stats
+# More item stats
 echo stats items |nc localhost 11211 |grep "STAT items:[0-9]" |tr ':' ' ' |egrep "[^_]age|evicted|evicted_time|evicted_unfetched|expired_unfetched|number|outofmemory|reclaimed[^_]" >$tmp_stats
 show_crosstab $tmp_stats 4 3 Stats_etc Slab 5 _ROW_,age,age_hot,age_warm,evicted_time
 
-
-#rm $tmp $tmp2 $tmp_parsed $tmp_parsed_prefix
+# Cleanup
+rm $tmp $tmp_parsed $tmp_parsed_prefix $tmp_stats
