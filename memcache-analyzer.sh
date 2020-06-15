@@ -20,11 +20,14 @@ function show_crosstab() {
     method=sum
     sum_field="${6:-x}"
   fi
+  if [ ${7:-x} != x ]
+  then
+    totals_exclude="${7:-x}"
+  fi
   
   echo "Crosstab: number of items by $header_cols/$header_rows"
   echo "-------------------------------------------------------------"
-  # WORKING: (cat $tmp_parsed |awk -v colfield=$colfield -v rowfield=$rowfield -v header_cols="$header_cols" -v header_rows="$header_rows" 'BEGIN { print ".\t" header_cols; } { col=$colfield; row=$rowfield; val=1; cols[col]=col; rows[row]=row; tot[col,row]+=val; tot_col[col]+=val; tot_row[row]+=val} END { printf("%s",header_rows); for(col in cols) { printf("\t%s", cols[col]); } printf("\n"); for(row in rows) { printf("%s", rows[row]); for(col in cols) { t=tot[col,row]; if (!t) { t="-"; } printf("\t%s", t); } printf "\n"; } printf "Total"; for(col in cols) { printf("\t%d", tot_col[col]); } printf "\n";}') |column -t
-  (cat $input_file |awk -v sum_field=$sum_field -v method=${method} -v colfield=$colfield -v rowfield=$rowfield -v header_cols="$header_cols" -v header_rows="$header_rows" '
+  (cat $input_file |awk -v sum_field=$sum_field -v method=${method} -v colfield=$colfield -v rowfield=$rowfield -v header_cols="$header_cols" -v header_rows="$header_rows" -v totals_exclude=",$totals_exclude," '
   function track(col,row,val) {
     #print col row val;
     cols[col]=col; 
@@ -34,8 +37,15 @@ function show_crosstab() {
     tot_row[row]+=val
     grand_total+=val;
   }
+  function should_exclude_from_totals(name) {
+    return (index(totals_exclude, sprintf(",%s,", name)) > 0)
+  }
   BEGIN { 
-    print ".\t.\t" header_cols "→"; } 
+    printf ".\t" 
+    if (!should_exclude_from_totals("_ROW_")) {
+      printf ".\t" 
+    }
+    print header_cols "→"; } 
   { 
     # Track
     val=1;
@@ -48,47 +58,65 @@ function show_crosstab() {
     row_num=asort(rows)
     col_num=asort(cols)
     
-    # Header row
-    printf("↓%s\tTOTAL",header_rows);
-    #for(col in cols) { 
-    #  printf("\t%s", cols[col]);
-    #} 
+    #### Header row
+    printf("↓%s",header_rows);
+    
+    # Total column
+    if (!should_exclude_from_totals("_ROW_")) {
+      printf "\tTOTAL";
+    }
+    
+    # Rest of columns
     for(col_i=1;col_i<=col_num;col_i++) {
       printf("\t%s", cols[col_i]);
     }
     printf("\n");
+    
+    # Print divider below header row
     sep="----";
-    printf("%s\t%s", sep, sep);
+    printf("%s", sep)
+    if (!should_exclude_from_totals("_ROW_")) {
+      printf("\t%s", sep);
+    }
     for(col_i=1;col_i<=col_num;col_i++) {
       printf("\t%s",sep);
     }
     printf("\n");
+    #### END header row    
+
+    #### TOTALS row
+    printf "TOTAL"
     
-    # Totals row 
-    printf "TOTAL\t" grand_total;
+    if (!should_exclude_from_totals("_ROW_")) {
+      printf "\t" grand_total;
+    }
     for(col_i=1;col_i<=col_num;col_i++) {
-      printf("\t%d", tot_col[cols[col_i]]);
+      val = "-";
+      # If column not excluded from totals
+      if (should_exclude_from_totals(cols[col_i]) == 0 ) {
+        val = tot_col[cols[col_i]];
+      } 
+      printf("\t%s", val);
     } 
     printf "\n";
+    #### END TOTALS row
 
-    # Print all rows
-    #for(row in rows) { 
+    #### ALL rows
     for(row_i=1;row_i<=row_num;row_i++) {
       row=rows[row_i]
       # Label
       printf("%s", row);
       
       # Totals column
-      printf("\t%s", tot_row[row]);
+      if (!should_exclude_from_totals("_ROW_")) {
+        printf "\t" tot_row[row];
+      }
       
       # Each column
       #for(col in cols) {
       for(col_i=1;col_i<=col_num;col_i++) {
         col=cols[col_i]
         t=tot[col,row];
-        
-        #count++
-        #if (count%20==0) print "DEBUG: col=" col " row=" row " value=" t >"/dev/stderr"
         if (!t) { t="-"; }
         printf("\t%s", t);
       } 
@@ -150,7 +178,7 @@ function parse_dump() {
     slab=substr($1,index($1,"=")+1,2);
     format=1
 
-    if (index(substr($3,1,20), "%3A")) {
+    if (index($3, ":") == 0) {
       pos1=index($3, "%3A"); prefix=substr($3,1,pos1-2);
       tmp=substr($3,pos1+3); pos2=index(tmp, "%3A"); bin=substr(tmp, 1, pos2-1);
       item=substr(tmp, pos2+4);
@@ -171,7 +199,7 @@ echo "Parsed file is: $tmp_parsed"
 #(echo "#items prefix"; cat $tmp | egrep -o "^SLAB=[0-9][0-9]* ITEM [a-z][a-z0-9\.]*" |cut -f3 -d' ' |sort |uniq -c |sort -nr) |column -t
 #echo "" 
 
-show_crosstab $tmp_parsed 2 3 Prefix Bin
+show_crosstab $tmp_parsed 2 3 Prefix Bin 
 show_crosstab $tmp_parsed 2 1 Prefix Slab
 
 #
@@ -223,11 +251,11 @@ done
 
 # Get stats
 echo stats slabs |nc localhost 11211 |grep "STAT [0-9]" |tr ':' ' ' |egrep "[^_](chunk_size|chunks_per_page|cmd_set|delete_hits|free_chunks|get_hits|mem_requested|total_chunks|total_pages|used_chunks)[^_]" >$tmp_stats
-show_crosstab $tmp_stats 3 2 Stats_slab Slab 4
+show_crosstab $tmp_stats 3 2 Stats_slab Slab 4 _ROW_,chunk_size
 
 # Get stats
 echo stats items |nc localhost 11211 |grep "STAT items:[0-9]" |tr ':' ' ' |egrep "[^_]age|evicted|evicted_time|evicted_unfetched|expired_unfetched|number|outofmemory|reclaimed[^_]" >$tmp_stats
-show_crosstab $tmp_stats 4 3 Stats_etc Slab 5
+show_crosstab $tmp_stats 4 3 Stats_etc Slab 5 _ROW_,age
 
 
 #rm $tmp $tmp2 $tmp_parsed $tmp_parsed_prefix
