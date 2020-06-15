@@ -176,9 +176,10 @@ function parse_dump() {
   cat $1 | awk -F ' ' '
   {
     slab=substr($1,index($1,"=")+1,2);
-    format=1
-
-    if (index($3, ":") == 0) {
+    piece=substr($3,1, index($3,"-"));
+    pos_colon=index(piece, ":")
+    pos_3a=index(piece, "%3A");
+    if (pos_colon == 0 && pos_3a>0) {
       pos1=index($3, "%3A"); prefix=substr($3,1,pos1-2);
       tmp=substr($3,pos1+3); pos2=index(tmp, "%3A"); bin=substr(tmp, 1, pos2-1);
       item=substr(tmp, pos2+4);
