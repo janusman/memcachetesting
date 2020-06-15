@@ -252,11 +252,11 @@ done
 
 # Get stats
 echo stats slabs |nc localhost 11211 |grep "STAT [0-9]" |tr ':' ' ' |egrep "[^_](chunk_size|chunks_per_page|cmd_set|delete_hits|free_chunks|get_hits|mem_requested|total_chunks|total_pages|used_chunks)[^_]" >$tmp_stats
-show_crosstab $tmp_stats 3 2 Stats_slab Slab 4 _ROW_,chunk_size
+show_crosstab $tmp_stats 3 2 Stats_slab Slab 4 _ROW_,chunk_size,chunks_per_page
 
 # Get stats
 echo stats items |nc localhost 11211 |grep "STAT items:[0-9]" |tr ':' ' ' |egrep "[^_]age|evicted|evicted_time|evicted_unfetched|expired_unfetched|number|outofmemory|reclaimed[^_]" >$tmp_stats
-show_crosstab $tmp_stats 4 3 Stats_etc Slab 5 _ROW_,age
+show_crosstab $tmp_stats 4 3 Stats_etc Slab 5 _ROW_,age,age_hot,age_warm,evicted_time
 
 
 #rm $tmp $tmp2 $tmp_parsed $tmp_parsed_prefix
