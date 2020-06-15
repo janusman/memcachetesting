@@ -97,15 +97,26 @@ function show_crosstab() {
   }') |column -t
   echo "" 
 }
-  
-  
-echo "Dump file is in $tmp"
-# Gather data from memcache
-rm -f $tmp 2>/dev/null
-for i in {1..42}
-do
-  echo "stats cachedump $i 0" | nc $(hostname -s) 11211 |grep -v "END" | awk '{ print "SLAB='$i' " $0 }' >>$tmp
-done
+
+if [ ${1:-x} = x ]
+then
+  echo "Dump file is in $tmp"
+  # Gather data from memcache
+  rm -f $tmp 2>/dev/null
+  for i in {1..42}
+  do
+    echo "stats cachedump $i 0" | nc $(hostname -s) 11211 |grep -v "END" | awk '{ print "SLAB='$i' " $0 }' >>$tmp
+  done
+else
+  echo "Using dump file $1"
+  cat $1 >$tmp
+  if [ $? -gt 0 ]
+  then
+    echo "Error: could not use file $1"
+    exit 1
+  fi
+fi
+
 
 num_total=`grep -c . $tmp`
 #num_hashed=`egrep -c "ITEM [0-9a-z]{40} " $tmp`
@@ -119,10 +130,10 @@ echo "Total memcache items: $num_total"
 #  (B) SLAB=2 ITEM hercampus_-cache_menu-.wildcard-admin_menu%3A821856%3A [1 b; 0 s]
 #
 # Detect:
-if [ `head -100 $tmp |egrep -c '^SLAB=[0-9][0-9]* ITEM [a-z][a-z]*_'` -gt 0 ]
+if [ `head -100 $tmp |egrep -c '^SLAB=[0-9][0-9]* ITEM [a-z][a-z0-9_\.]%3A'` -gt 1 ]
 then
   # Format B
-  cat $tmp |awk -F ' ' '{ slab=substr($1,index($1,"=")+1,2); pos1=index($3, "_-"); prefix=substr($3,1,pos1-1); tmp=substr($3,pos1+2); pos2=index(tmp, "-"); bin=substr(tmp, 1, pos2-1); item=substr(tmp, pos2+1); print slab "\t" prefix "\t" bin "\t" item}' >$tmp_parsed
+  cat $tmp |awk -F ' ' '{ slab=substr($1,index($1,"=")+1,2); pos1=index($3, "-"); prefix=substr($3,1,pos1-1); tmp=substr($3,pos1+1); pos2=index(tmp, "-"); bin=substr(tmp, 1, pos2-1); item=substr(tmp, pos2+1); print slab "\t" prefix "\t" bin "\t" item}' >$tmp_parsed
 else
   # Format A
   cat $tmp | awk -F ' ' '{ slab=substr($1,index($1,"=")+1,2); pos1=index($3, "%3A"); prefix=substr($3,1,pos1-2); tmp=substr($3,pos1+3); pos2=index(tmp, "%3A"); bin=substr(tmp, 1, pos2-1); item=substr(tmp, pos2+4); print slab "\t" prefix "\t" bin "\t" item}' >$tmp_parsed
@@ -196,4 +207,4 @@ do
   echo ""
 done
 
-rm $tmp $tmp2 $tmp_parsed
+#rm $tmp $tmp2 $tmp_parsed
