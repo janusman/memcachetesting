@@ -6,6 +6,11 @@ tmp_parsed="/tmp/memcache-dump-parsed.$$"
 tmp_parsed_prefix="/tmp/memcache-dump-parsed-prefix.$$"
 tmp_stats="/tmp/memcache-stats.$$"
 
+function cleanup() {
+  echo "Cleaning up temporary files" 
+  rm 2>/dev/null $tmp $tmp_parsed $tmp_parsed_prefix $tmp_stats
+}
+
 function show_crosstab() {
   input_file=$1
   colfield=$2
@@ -128,7 +133,7 @@ function show_crosstab() {
 
 if [ ${1:-x} = x ]
 then
-  echo "Dump file is in $tmp"
+  echo "Dumping memcache data to file $tmp"
   # Gather data from memcache
   rm -f $tmp 2>/dev/null
   for i in {1..42}
@@ -141,8 +146,16 @@ else
   if [ $? -gt 0 ]
   then
     echo "Error: could not use file $1"
+    cleanup
     exit 1
   fi
+fi
+
+if [ ! -s $tmp ]
+then
+  echo "Dumpfile has no data. Perhaps memcache is not running or has no data."
+  cleanup
+  exit 0
 fi
 
 
@@ -188,7 +201,9 @@ function parse_dump() {
       tmp=substr($3,pos1+1); pos2=index(tmp, "-"); bin=substr(tmp, 1, pos2-1);
       item=substr(tmp, pos2+1);
     }
-    print slab "\t" prefix "\t" bin "\t" item
+    if (prefix != "" && bin != "") {
+      print slab "\t" prefix "\t" bin "\t" item
+    }
   }'
 }
 parse_dump $tmp >$tmp_parsed
@@ -228,4 +243,6 @@ echo stats items |nc localhost 11211 |grep "STAT items:[0-9]" |tr ':' ' ' |egrep
 show_crosstab $tmp_stats 4 3 Stats_etc Slab 5 _ROW_,age,age_hot,age_warm,evicted_time
 
 # Cleanup
-rm $tmp $tmp_parsed $tmp_parsed_prefix $tmp_stats
+cleanup
+
+echo "Done!"
