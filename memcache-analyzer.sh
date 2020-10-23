@@ -206,9 +206,21 @@ function parse_dump() {
     }
   }'
 }
+
 parse_dump $tmp >$tmp_parsed
 echo "Parsed file is: $tmp_parsed"
 echo ""
+
+
+if [ $1 == "--no-report" -o ${2:-x} = "--no-report" ]
+then
+  echo "Called with --no-report argument, exiting."
+  exit 0
+fi
+
+
+
+
 
 show_crosstab $tmp_parsed 2 3 Prefix Bin 
 show_crosstab $tmp_parsed 2 1 Prefix Slab
