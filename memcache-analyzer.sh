@@ -1,6 +1,20 @@
 #!/bin/bash
 # Memcache analyzer
 
+# Constants
+# See http://linuxtidbits.wordpress.com/2008/08/11/output-color-on-bash-scripts/
+COLOR_BLACK=$(tput setaf 0) #"\[\033[0;31m\]"
+COLOR_RED=$(tput setaf 1) #"\[\033[0;31m\]"
+COLOR_YELLOW=$(tput setaf 3) #"\[\033[0;33m\]"
+COLOR_GREEN=$(tput setaf 2) #"\[\033[0;32m\]"
+COLOR_GRAY=$(tput setaf 7) #"\[\033[2;37m\]"
+COLOR_NONE=$(tput sgr0) #"\[\033[0m\]"
+COLOR_BACKGROUND_NONE=$(tput setab 0)
+COLOR_BACKGROUND_RED=$(tput setab 1)
+COLOR_BACKGROUND_GREEN=$(tput setab 2)
+COLOR_BACKGROUND_YELLOW=$(tput setab 3)
+COLOR_BACKGROUND_WHITE=$(tput setab 7)
+
 tmp="/tmp/memcache-dump.$$"
 tmp_parsed="/tmp/memcache-dump-parsed.$$"
 tmp_parsed_prefix="/tmp/memcache-dump-parsed-prefix.$$"
@@ -9,6 +23,13 @@ tmp_stats="/tmp/memcache-stats.$$"
 function cleanup() {
   echo "Cleaning up temporary files" 
   rm 2>/dev/null $tmp $tmp_parsed $tmp_parsed_prefix $tmp_stats
+}
+
+function header() {
+  echo ""
+  echo "${COLOR_GRAY}._____________________________________________________________________________"
+  echo "|${COLOR_GREEN}  $1"
+  echo "${COLOR_NONE}"
 }
 
 function show_crosstab() {
@@ -131,6 +152,13 @@ function show_crosstab() {
   echo "" 
 }
 
+memcache_server=$(hostname -s)
+# On ACN?
+if [ ${HOME:-x} = "/home/clouduser" ]
+then
+  memcache_server=`nc -v -w1 -q1 "localhost" "11211" 2>&1 <<<"get __mcrouter__.preprocessed_config" 2>/dev/null |grep 11211 |cut -f2 -d'"' |cut -f1 -d: |head -1`
+fi
+
 if [ ${1:-x} = x ]
 then
   echo "Dumping memcache data to file $tmp"
@@ -138,7 +166,7 @@ then
   rm -f $tmp 2>/dev/null
   for i in {1..42}
   do
-    echo "stats cachedump $i 0" | nc $(hostname -s) 11211 |grep -v "END" | awk '{ print "SLAB='$i' " $0 }' >>$tmp
+    echo "stats cachedump $i 0" | nc $memcache_server 11211 |grep -v "END" | awk '{ print "SLAB='$i' " $0 }' >>$tmp
   done
 else
   echo "Using dump file $1"
@@ -212,15 +240,11 @@ echo "Parsed file is: $tmp_parsed"
 echo ""
 
 
-if [ $1 == "--no-report" -o ${2:-x} = "--no-report" ]
+if [ "$1:-x}" = "--no-report" -o ${2:-x} = "--no-report" ]
 then
   echo "Called with --no-report argument, exiting."
   exit 0
 fi
-
-
-
-
 
 show_crosstab $tmp_parsed 2 3 Prefix Bin 
 show_crosstab $tmp_parsed 2 1 Prefix Slab
@@ -247,11 +271,14 @@ do
 done
 
 # Get slab stats
-echo stats slabs |nc localhost 11211 |grep "STAT [0-9]" |tr ':' ' ' |egrep "[^_](chunk_size|chunks_per_page|cmd_set|delete_hits|free_chunks|get_hits|mem_requested|total_chunks|total_pages|used_chunks)[^_]" >$tmp_stats
+header "SLAB statistics"
+echo stats slabs |nc $memcache_server 11211 |grep "STAT [0-9]" |tr ':' ' ' |egrep "[^_](chunk_size|chunks_per_page|cmd_set|delete_hits|free_chunks|get_hits|mem_requested|total_chunks|total_pages|used_chunks)[^_]" >$tmp_stats
 show_crosstab $tmp_stats 3 2 Stats_slab Slab 4 _ROW_,chunk_size,chunks_per_page
+echo ""
 
 # More item stats
-echo stats items |nc localhost 11211 |grep "STAT items:[0-9]" |tr ':' ' ' |egrep "[^_]age|evicted|evicted_time|evicted_unfetched|expired_unfetched|number|outofmemory|reclaimed[^_]" >$tmp_stats
+header "ITEM statistics"
+echo stats items |nc $memcache_server 11211 |grep "STAT items:[0-9]" |tr ':' ' ' |egrep "[^_]age|evicted|evicted_time|evicted_unfetched|expired_unfetched|number|outofmemory|reclaimed[^_]" >$tmp_stats
 show_crosstab $tmp_stats 4 3 Stats_etc Slab 5 _ROW_,age,age_hot,age_warm,evicted_time
 
 # Cleanup
