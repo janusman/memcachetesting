@@ -201,6 +201,7 @@ do
       ;;
     --raw )
       FLAG_RAW=1
+      ;;
     --*)
       # error unknown (long) option $1
       echo "${COLOR_RED}Unknown option $1${COLOR_NONE}"
