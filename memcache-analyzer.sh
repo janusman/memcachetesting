@@ -170,6 +170,7 @@ fi
 # Get options
 # http://stackoverflow.com/questions/402377/using-getopts-in-bash-shell-script-to-get-long-and-short-command-line-options/7680682#7680682
 FLAG_LIST_KEYS=0
+FLAG_RAW=0
 while test $# -gt 0
 do
   case $1 in
@@ -198,6 +199,8 @@ do
     --list-keys | --keys)
       FLAG_LIST_KEYS=1
       ;;
+    --raw )
+      FLAG_RAW=1
     --*)
       # error unknown (long) option $1
       echo "${COLOR_RED}Unknown option $1${COLOR_NONE}"
@@ -254,11 +257,17 @@ fi
 
 if [ $FLAG_LIST_KEYS -eq 1 ]
 then
+  dumpfile=$tmp_parsed
+  if [ $FLAG_RAW -eq 1 ]
+  then
+    dumpfile=$tmp
+  fi
+
   if [ "$GREPSTRING" = "." ]
   then
-    less $tmp_parsed
+    less $dumpfile
   else
-    egrep --color "^|$GREPSTRING" $tmp_parsed | less
+    egrep --color "^|$GREPSTRING" $dumpfile | less
   fi
   exit 0
 fi
