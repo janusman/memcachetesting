@@ -171,6 +171,7 @@ fi
 # http://stackoverflow.com/questions/402377/using-getopts-in-bash-shell-script-to-get-long-and-short-command-line-options/7680682#7680682
 FLAG_LIST_KEYS=0
 FLAG_RAW=0
+FLAG_GET=0
 while test $# -gt 0
 do
   case $1 in
@@ -202,6 +203,9 @@ do
     --raw )
       FLAG_RAW=1
       ;;
+    --item | --get)
+      FLAG_GET=1
+      ;;
     --*)
       # error unknown (long) option $1
       echo "${COLOR_RED}Unknown option $1${COLOR_NONE}"
@@ -228,6 +232,21 @@ do
 
   shift
 done
+
+# Dump a single item
+if [ $FLAG_GET = 1 ]
+then
+  echo "Dumping item $GREPSTRING"
+  echo "-------------------------------------"
+  echo ""
+  drush --root=/var/www/html/${AH_SITE_NAME}/docroot ev '
+    $m = \Drupal::service("memcache.factory")->get();
+    $cid="'"$GREPSTRING"'";
+    print_r($m->getMemcache()->get($cid));
+  '
+  echo ""
+  exit 0
+fi
 
 if [ ${DUMP_FILE:-x} = x ]
 then
