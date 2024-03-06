@@ -160,12 +160,7 @@ function show_crosstab() {
 
 ### MAIN
 
-memcache_server=$(hostname -s)
-# On ACN?
-if [ ${HOME:-x} = "/home/clouduser" ]
-then
-  memcache_server=`nc -v -w1 -q1 "localhost" "11211" 2>&1 <<<"get __mcrouter__.preprocessed_config" 2>/dev/null |grep 11211 |cut -f2 -d'"' |cut -f1 -d: |head -1`
-fi
+
 
 # Get options
 # http://stackoverflow.com/questions/402377/using-getopts-in-bash-shell-script-to-get-long-and-short-command-line-options/7680682#7680682
@@ -196,6 +191,9 @@ do
       ;;
     --grep=*)
       GREPSTRING=$1
+      ;;
+    --server=*)
+      MEMCACHE_SERVER=$1
       ;;
     --list-keys | --keys)
       FLAG_LIST_KEYS=1
@@ -233,16 +231,35 @@ do
   shift
 done
 
+# Determine the memcache server
+if [ ${MEMCACHE_SERVER:-x} = "" ]
+then
+  memcache_server=$(hostname -s)
+  # On ACN?
+  if [ ${HOME:-x} = "/home/clouduser" ]
+  then
+    memcache_server=`nc -v -w1 -q1 "localhost" "11211" 2>&1 <<<"get __mcrouter__.preprocessed_config" 2>/dev/null |grep 11211 |cut -f2 -d'"' |cut -f1 -d: |head -1`
+  fi
+else
+  memcache_server=$MEMCACHE_SERVER
+fi
+
+
 # Dump a single item
 if [ $FLAG_GET = 1 ]
 then
   echo "Dumping item $GREPSTRING"
   echo "-------------------------------------"
   echo ""
-  drush --root=/var/www/html/${AH_SITE_NAME}/docroot ev '
-    $m = \Drupal::service("memcache.factory")->get();
-    $cid="'"$GREPSTRING"'";
-    print_r($m->getMemcache()->get($cid));
+  #drush --root=/var/www/html/${AH_SITE_NAME}/docroot ev '
+  #  $m = \Drupal::service("memcache.factory")->get();
+  #  $cid="'"$GREPSTRING"'";
+  #  print_r($m->getMemcache()->get($cid));
+  #'
+  php -r '
+    $mc = new Memcached;
+    $mc->addServer("'$memcache_server'", 11211);
+    print_r($mc->get("'"$GREPSTRING"'"));
   '
   echo ""
   exit 0
