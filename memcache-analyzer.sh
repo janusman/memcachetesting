@@ -27,7 +27,7 @@ tmp_stats="/tmp/memcache-stats.$$"
 GREPSTRING="."
 
 function cleanup() {
-  echo "Cleaning up temporary files" 
+  echo "Cleaning up temporary files"
   rm 2>/dev/null $tmp $tmp_parsed $tmp_parsed_prefix $tmp_stats
 }
 
@@ -44,7 +44,7 @@ function show_crosstab() {
   rowfield=$3
   header_cols=$4
   header_rows=$5
-  
+
   method=count
   if [ ${6:-x} != x ]
   then
@@ -55,54 +55,54 @@ function show_crosstab() {
   then
     totals_exclude="${7:-x}"
   fi
-  
+
   echo "Crosstab: number of items by $header_cols/$header_rows"
   echo "-------------------------------------------------------------"
   (cat $input_file |awk -v sum_field=$sum_field -v method=${method} -v colfield=$colfield -v rowfield=$rowfield -v header_cols="$header_cols" -v header_rows="$header_rows" -v totals_exclude=",$totals_exclude," '
   function track(col,row,val) {
     #print col row val;
-    cols[col]=col; 
-    rows[row]=row; 
-    tot[col,row]+=val; 
-    tot_col[col]+=val; 
+    cols[col]=col;
+    rows[row]=row;
+    tot[col,row]+=val;
+    tot_col[col]+=val;
     tot_row[row]+=val
     grand_total+=val;
   }
   function should_exclude_from_totals(name) {
     return (index(totals_exclude, sprintf(",%s,", name)) > 0)
   }
-  BEGIN { 
-    printf ".\t" 
+  BEGIN {
+    printf ".\t"
     if (!should_exclude_from_totals("_ROW_")) {
-      printf ".\t" 
+      printf ".\t"
     }
-    print header_cols "→"; } 
-  { 
+    print header_cols "→"; }
+  {
     # Track
     val=1;
     if (method=="sum") {
       val=$sum_field;
     }
-    track($colfield,$rowfield,val);    
-  } 
-  END { 
+    track($colfield,$rowfield,val);
+  }
+  END {
     row_num=asort(rows)
     col_num=asort(cols)
-    
+
     #### Header row
     printf("↓%s",header_rows);
-    
+
     # Total column
     if (!should_exclude_from_totals("_ROW_")) {
       printf "\tTOTAL";
     }
-    
+
     # Rest of columns
     for(col_i=1;col_i<=col_num;col_i++) {
       printf("\t%s", cols[col_i]);
     }
     printf("\n");
-    
+
     # Print divider below header row
     sep="----";
     printf("%s", sep)
@@ -113,11 +113,11 @@ function show_crosstab() {
       printf("\t%s",sep);
     }
     printf("\n");
-    #### END header row    
+    #### END header row
 
     #### TOTALS row
     printf "TOTAL"
-    
+
     if (!should_exclude_from_totals("_ROW_")) {
       printf "\t" grand_total;
     }
@@ -126,9 +126,9 @@ function show_crosstab() {
       # If column not excluded from totals
       if (should_exclude_from_totals(cols[col_i]) == 0 ) {
         val = tot_col[cols[col_i]];
-      } 
+      }
       printf("\t%s", val);
-    } 
+    }
     printf "\n";
     #### END TOTALS row
 
@@ -137,12 +137,12 @@ function show_crosstab() {
       row=rows[row_i]
       # Label
       printf("%s", row);
-      
+
       # Totals column
       if (!should_exclude_from_totals("_ROW_")) {
         printf "\t" tot_row[row];
       }
-      
+
       # Each column
       #for(col in cols) {
       for(col_i=1;col_i<=col_num;col_i++) {
@@ -150,12 +150,12 @@ function show_crosstab() {
         t=tot[col,row];
         if (!t) { t="-"; }
         printf("\t%s", t);
-      } 
+      }
       printf "\n";
     }
 
   }') |column -t
-  echo "" 
+  echo ""
 }
 
 ### MAIN
@@ -169,6 +169,7 @@ fi
 
 # Get options
 # http://stackoverflow.com/questions/402377/using-getopts-in-bash-shell-script-to-get-long-and-short-command-line-options/7680682#7680682
+FLAG_LIST_KEYS=0
 while test $# -gt 0
 do
   case $1 in
@@ -194,8 +195,8 @@ do
     --grep=*)
       GREPSTRING=$1
       ;;
-    --env=* | --force-env=*)
-      FORCE_ENV=`echo $1 |cut -f2 -d=`
+    --list-keys | --keys)
+      FLAG_LIST_KEYS=1
       ;;
     --*)
       # error unknown (long) option $1
@@ -215,21 +216,6 @@ do
   #    ;;
 
   # Done with options
-    @*)
-      SITENAME=$1
-      ;;
-    http*)
-      URI="--uri=$1"
-      ;;
-    www*)
-      URI="--uri=$1"
-      ;;
-    *.*)
-      URI="--uri=$1"
-      ;;
-    [a-f0-9][a-f0-9][a-f0-9]*\-[a-f0-9][a-f0-9][a-f0-9-]*)
-      UUID="$1"
-      ;;
     #Catchall
     *)
       GREPSTRING="$1"
@@ -266,6 +252,16 @@ then
   exit 0
 fi
 
+if [ $FLAG_LIST_KEYS -eq 1 ]
+then
+  if [ "$GREPSTRING" = "." ]
+  then
+    less $tmp_parsed
+  else
+    egrep --color "^|$GREPSTRING" $tmp_parsed | less
+  fi
+  exit 0
+fi
 
 num_total=`grep -c . $tmp`
 #num_hashed=`egrep -c "ITEM [0-9a-z]{40} " $tmp`
@@ -330,7 +326,7 @@ echo "Count by prefix"
 echo "---------------"
 awk '{ print $2 }' $tmp_parsed |sort |uniq -c |sort -nr |head
 
-show_crosstab $tmp_parsed 2 3 Prefix Bin 
+show_crosstab $tmp_parsed 2 3 Prefix Bin
 show_crosstab $tmp_parsed 2 1 Prefix Slab
 
 # Get prefixes, but sorted by most-to-least frequent
