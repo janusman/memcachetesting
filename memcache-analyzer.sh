@@ -15,10 +15,16 @@ COLOR_BACKGROUND_GREEN=$(tput setab 2)
 COLOR_BACKGROUND_YELLOW=$(tput setab 3)
 COLOR_BACKGROUND_WHITE=$(tput setab 7)
 
-tmp="/tmp/memcache-dump.$$"
-tmp_parsed="/tmp/memcache-dump-parsed.$$"
-tmp_parsed_prefix="/tmp/memcache-dump-parsed-prefix.$$"
+SCRIPT_FOLDER="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd $SCRIPT_FOLDER
+
+DUMP_FILE=""
+
+tmp="/tmp/memcache-dump"
+tmp_parsed="/tmp/memcache-dump-parsed"
+tmp_parsed_prefix="/tmp/memcache-dump-parsed-prefix"
 tmp_stats="/tmp/memcache-stats.$$"
+GREPSTRING="."
 
 function cleanup() {
   echo "Cleaning up temporary files" 
@@ -152,6 +158,8 @@ function show_crosstab() {
   echo "" 
 }
 
+### MAIN
+
 memcache_server=$(hostname -s)
 # On ACN?
 if [ ${HOME:-x} = "/home/clouduser" ]
@@ -159,21 +167,93 @@ then
   memcache_server=`nc -v -w1 -q1 "localhost" "11211" 2>&1 <<<"get __mcrouter__.preprocessed_config" 2>/dev/null |grep 11211 |cut -f2 -d'"' |cut -f1 -d: |head -1`
 fi
 
-if [ ${1:-x} = x ]
+# Get options
+# http://stackoverflow.com/questions/402377/using-getopts-in-bash-shell-script-to-get-long-and-short-command-line-options/7680682#7680682
+while test $# -gt 0
+do
+  case $1 in
+
+  # Normal option processing
+    -h | --help)
+      # usage and help
+      showhelp
+      exit
+      ;;
+    -v | -vvv | --verbose)
+      VERBOSE=1
+      ;;
+  # ...
+
+  # Special cases
+    --)
+      break
+      ;;
+    --dump-file=*)
+      DUMP_FILE=$1
+      ;;
+    --grep=*)
+      GREPSTRING=$1
+      ;;
+    --env=* | --force-env=*)
+      FORCE_ENV=`echo $1 |cut -f2 -d=`
+      ;;
+    --*)
+      # error unknown (long) option $1
+      echo "${COLOR_RED}Unknown option $1${COLOR_NONE}"
+      ;;
+    -?)
+      # error unknown (short) option $1
+      echo "${COLOR_RED}Unknown option $1${COLOR_NONE}"
+      ;;
+
+  # Split apart combined short options
+  #  -*)
+  #    split=$1
+  #    shift
+  #    set -- $(echo "$split" | cut -c 2- | sed 's/./-& /g') "$@"
+  #    continue
+  #    ;;
+
+  # Done with options
+    @*)
+      SITENAME=$1
+      ;;
+    http*)
+      URI="--uri=$1"
+      ;;
+    www*)
+      URI="--uri=$1"
+      ;;
+    *.*)
+      URI="--uri=$1"
+      ;;
+    [a-f0-9][a-f0-9][a-f0-9]*\-[a-f0-9][a-f0-9][a-f0-9-]*)
+      UUID="$1"
+      ;;
+    #Catchall
+    *)
+      GREPSTRING="$1"
+      ;;
+  esac
+
+  shift
+done
+
+if [ ${DUMP_FILE:-x} = x ]
 then
   echo "Dumping memcache data to file $tmp"
   # Gather data from memcache
   rm -f $tmp 2>/dev/null
   for i in {1..42}
   do
-    echo "stats cachedump $i 0" | nc $memcache_server 11211 |grep -v "END" | awk '{ print "SLAB='$i' " $0 }' >>$tmp
+    echo "stats cachedump $i 0" | nc $memcache_server 11211 | grep "$GREPSTRING" | grep -v "END" | awk '{ print "SLAB='$i' " $0 }' >>$tmp
   done
 else
-  echo "Using dump file $1"
-  cat $1 >$tmp
+  echo "Using dump file $DUMP_FILE"
+  grep "$GREPSTRING" $DUMP_FILE >$tmp
   if [ $? -gt 0 ]
   then
-    echo "Error: could not use file $1"
+    echo "Error: could not use file $DUMP_FILE"
     cleanup
     exit 1
   fi
@@ -240,11 +320,15 @@ echo "Parsed file is: $tmp_parsed"
 echo ""
 
 
-if [ "$1:-x}" = "--no-report" -o ${2:-x} = "--no-report" ]
+if [ "${1:-x}" = "--no-report" -o ${2:-x} = "--no-report" ]
 then
   echo "Called with --no-report argument, exiting."
   exit 0
 fi
+
+echo "Count by prefix"
+echo "---------------"
+awk '{ print $2 }' $tmp_parsed |sort |uniq -c |sort -nr |head
 
 show_crosstab $tmp_parsed 2 3 Prefix Bin 
 show_crosstab $tmp_parsed 2 1 Prefix Slab
