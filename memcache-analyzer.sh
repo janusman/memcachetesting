@@ -18,13 +18,10 @@ COLOR_BACKGROUND_WHITE=$(tput setab 7)
 SCRIPT_FOLDER="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd $SCRIPT_FOLDER
 
-DUMP_FILE=""
-
 tmp="/tmp/memcache-dump"
 tmp_parsed="/tmp/memcache-dump-parsed"
 tmp_parsed_prefix="/tmp/memcache-dump-parsed-prefix"
-tmp_stats="/tmp/memcache-stats.$$"
-GREPSTRING="."
+tmp_stats="/tmp/memcache-stats"
 
 function cleanup() {
   echo "Cleaning up temporary files"
@@ -158,15 +155,34 @@ function show_crosstab() {
   echo ""
 }
 
+function showhelp() {
+  cat <<EOF
+Inspects memcache usage by Drupal.
+
+Usage: $0 [optional arguments/flags]
+
+Optional arguments:
+--dump-file=[file]        Specify an existing dump file.
+--grep=[searchstring]     Only report on cache IDs that match the searchstring. Default: '.' (match all)
+--server=[server]         Specify a server to connect to. Default is localhost.
+--list-keys               Don't analyze, dump matching keys.
+--raw                     Only when --list-keys is used, don't parse keys.
+--item [cache-id]         Fetches and dumps a single item from memcache.
+EOF
+}
+
 ### MAIN
 
 
-
-# Get options
-# http://stackoverflow.com/questions/402377/using-getopts-in-bash-shell-script-to-get-long-and-short-command-line-options/7680682#7680682
+# Defaults
 FLAG_LIST_KEYS=0
 FLAG_RAW=0
 FLAG_GET=0
+DUMP_FILE=""
+GREPSTRING="."
+
+# Get options
+# http://stackoverflow.com/questions/402377/using-getopts-in-bash-shell-script-to-get-long-and-short-command-line-options/7680682#7680682
 while test $# -gt 0
 do
   case $1 in
@@ -232,7 +248,7 @@ do
 done
 
 # Determine the memcache server
-if [ ${MEMCACHE_SERVER:-x} = "" ]
+if [ ${MEMCACHE_SERVER:-x} = "x" ]
 then
   memcache_server=$(hostname -s)
   # On ACN?
