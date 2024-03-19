@@ -1,5 +1,6 @@
 #!/bin/bash
 # Memcache analyzer
+set +x
 
 # Constants
 # See http://linuxtidbits.wordpress.com/2008/08/11/output-color-on-bash-scripts/
@@ -18,14 +19,14 @@ COLOR_BACKGROUND_WHITE=$(tput setab 7)
 SCRIPT_FOLDER="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd $SCRIPT_FOLDER
 
-tmp="/tmp/memcache-dump"
+tmp_dump="/tmp/memcache-dump"
 tmp_parsed="/tmp/memcache-dump-parsed"
 tmp_parsed_prefix="/tmp/memcache-dump-parsed-prefix"
 tmp_stats="/tmp/memcache-stats"
 
 function cleanup() {
   echo "Cleaning up temporary files"
-  rm 2>/dev/null $tmp $tmp_parsed $tmp_parsed_prefix $tmp_stats
+  rm 2>/dev/null $tmp_parsed $tmp_parsed_prefix $tmp_stats
 }
 
 function header() {
@@ -180,6 +181,7 @@ FLAG_RAW=0
 FLAG_GET=0
 DUMP_FILE=""
 GREPSTRING="."
+FLAG_REFRESH=0
 
 # Get options
 # http://stackoverflow.com/questions/402377/using-getopts-in-bash-shell-script-to-get-long-and-short-command-line-options/7680682#7680682
@@ -203,16 +205,19 @@ do
       break
       ;;
     --dump-file=*)
-      DUMP_FILE=$1
+      DUMP_FILE=`echo "$1" |cut -f2 -d=`
       ;;
-    --grep=*)
-      GREPSTRING=$1
+    --grep=* | --find=*)
+      GREPSTRING=`echo "$1" |cut -f2 -d=`
       ;;
     --server=*)
-      MEMCACHE_SERVER=$1
+      MEMCACHE_SERVER=`echo "$1" |cut -f2 -d=`
       ;;
     --list-keys | --keys)
       FLAG_LIST_KEYS=1
+      ;;
+    --refresh | --cleanup)
+      FLAG_REFRESH=1
       ;;
     --raw )
       FLAG_RAW=1
@@ -248,9 +253,9 @@ do
 done
 
 # Determine the memcache server
-if [ ${MEMCACHE_SERVER:-x} = "x" ]
+if [ "${MEMCACHE_SERVER:-x}" = "x" ]
 then
-  memcache_server=$(hostname -s)
+  memcache_server=localhost #$(hostname -s)
   # On ACN?
   if [ ${HOME:-x} = "/home/clouduser" ]
   then
@@ -259,6 +264,7 @@ then
 else
   memcache_server=$MEMCACHE_SERVER
 fi
+echo "Using memcache server=$memcache_server"
 
 
 # Dump a single item
@@ -281,27 +287,30 @@ then
   exit 0
 fi
 
-if [ ${DUMP_FILE:-x} = x ]
+if [ ${DUMP_FILE:-x} != x ]
 then
-  echo "Dumping memcache data to file $tmp"
-  # Gather data from memcache
-  rm -f $tmp 2>/dev/null
-  for i in {1..42}
-  do
-    echo "stats cachedump $i 0" | nc $memcache_server 11211 | grep "$GREPSTRING" | grep -v "END" | awk '{ print "SLAB='$i' " $0 }' >>$tmp
-  done
-else
   echo "Using dump file $DUMP_FILE"
-  grep "$GREPSTRING" $DUMP_FILE >$tmp
+  grep "$GREPSTRING" $DUMP_FILE >$tmp_dump
   if [ $? -gt 0 ]
   then
     echo "Error: could not use file $DUMP_FILE"
     cleanup
     exit 1
   fi
+else
+  if [ $FLAG_REFRESH -eq 1 -o ! -s $tmp_dump -o -s $tmp_dump ]
+  then
+    echo "Dumping memcache data to file $tmp_dump"
+    # Gather data from memcache
+    rm -f $tmp_dump 2>/dev/null
+    for i in {1..42}
+    do
+      echo "stats cachedump $i 0" | nc $memcache_server 11211 | grep "$GREPSTRING" | grep -v "END" | awk '{ print "SLAB='$i' " $0 }' >>$tmp_dump
+    done
+  fi
 fi
 
-if [ ! -s $tmp ]
+if [ ! -s $tmp_dump ]
 then
   echo "Dumpfile has no data. Perhaps memcache is not running or has no data."
   cleanup
@@ -325,7 +334,7 @@ then
   exit 0
 fi
 
-num_total=`grep -c . $tmp`
+num_total=`grep -c . $tmp_dump`
 #num_hashed=`egrep -c "ITEM [0-9a-z]{40} " $tmp`
 
 echo "Total memcache items: $num_total"
@@ -373,7 +382,7 @@ function parse_dump() {
   }'
 }
 
-parse_dump $tmp >$tmp_parsed
+parse_dump $tmp_dump >$tmp_parsed
 echo "Parsed file is: $tmp_parsed"
 echo ""
 
