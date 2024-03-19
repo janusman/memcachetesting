@@ -327,9 +327,9 @@ then
 
   if [ "$GREPSTRING" = "." ]
   then
-    less $dumpfile
+    cat $dumpfile
   else
-    egrep --color "^|$GREPSTRING" $dumpfile | less
+    egrep --color "^|$GREPSTRING" $dumpfile
   fi
   exit 0
 fi
