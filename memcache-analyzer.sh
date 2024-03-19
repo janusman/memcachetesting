@@ -317,23 +317,6 @@ then
   exit 0
 fi
 
-if [ $FLAG_LIST_KEYS -eq 1 ]
-then
-  dumpfile=$tmp_parsed
-  if [ $FLAG_RAW -eq 1 ]
-  then
-    dumpfile=$tmp
-  fi
-
-  if [ "$GREPSTRING" = "." ]
-  then
-    cat $dumpfile
-  else
-    egrep --color "^|$GREPSTRING" $dumpfile
-  fi
-  exit 0
-fi
-
 num_total=`grep -c . $tmp_dump`
 #num_hashed=`egrep -c "ITEM [0-9a-z]{40} " $tmp`
 
@@ -386,6 +369,22 @@ parse_dump $tmp_dump >$tmp_parsed
 echo "Parsed file is: $tmp_parsed"
 echo ""
 
+if [ $FLAG_LIST_KEYS -eq 1 ]
+then
+  dumpfile=$tmp_parsed
+  if [ $FLAG_RAW -eq 1 ]
+  then
+    dumpfile=$tmp
+  fi
+
+  if [ "$GREPSTRING" = "." ]
+  then
+    cat $dumpfile
+  else
+    egrep --color "^|$GREPSTRING" $dumpfile
+  fi
+  exit 0
+fi
 
 if [ "${1:-x}" = "--no-report" -o ${2:-x} = "--no-report" ]
 then
