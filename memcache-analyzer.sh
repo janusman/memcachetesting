@@ -374,7 +374,7 @@ then
   dumpfile=$tmp_parsed
   if [ $FLAG_RAW -eq 1 ]
   then
-    dumpfile=$tmp
+    dumpfile=$tmp_dump
   fi
 
   if [ "$GREPSTRING" = "." ]
