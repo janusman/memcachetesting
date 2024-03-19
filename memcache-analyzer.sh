@@ -282,8 +282,7 @@ then
     $mc = new Memcached;
     $mc->addServer("'$memcache_server'", 11211);
     print_r($mc->get("'"$GREPSTRING"'"));
-  '
-  echo ""
+  ' | less
   exit 0
 fi
 
