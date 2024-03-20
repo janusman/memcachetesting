@@ -267,7 +267,7 @@ then
   # On ACN?
   if [ ${HOME:-x} = "/home/clouduser" ]
   then
-    memcache_server=`nc -N -v -w1 -q1 "localhost" "11211" 2>&1 <<<"get __mcrouter__.preprocessed_config" 2>/dev/null |grep 11211 |cut -f2 -d'"' |cut -f1 -d: |head -1`
+    memcache_server=`printf "get __mcrouter__.preprocessed_config\nquit\n" | nc -v -w1 -q1 "localhost" "11211" 2>&1 2>/dev/null |grep 11211 |cut -f2 -d'"' |cut -f1 -d: |head -1`
   fi
 else
   memcache_server=$MEMCACHE_SERVER
@@ -312,7 +312,7 @@ else
     rm -f $tmp_dump 2>/dev/null
     for i in {1..42}
     do
-      echo "stats cachedump $i 0" | nc -N $memcache_server 11211 | grep "$GREPSTRING" | grep -v "END" | awk '{ print "SLAB='$i' " $0 }' >>$tmp_dump
+      printf "stats cachedump $i 0\nquit\n" | nc $memcache_server 11211 | grep "$GREPSTRING" | grep -v "END" | awk '{ print "SLAB='$i' " $0 }' >>$tmp_dump
     done
   fi
 fi
@@ -429,13 +429,13 @@ done
 
 # Get slab stats
 header "SLAB statistics"
-echo stats slabs |nc -N $memcache_server 11211 |grep "STAT [0-9]" |tr ':' ' ' |egrep "[^_](chunk_size|chunks_per_page|cmd_set|delete_hits|free_chunks|get_hits|mem_requested|total_chunks|total_pages|used_chunks)[^_]" >$tmp_stats
+printf "stats slabs\nquit\n" |nc $memcache_server 11211 |grep "STAT [0-9]" |tr ':' ' ' |egrep "[^_](chunk_size|chunks_per_page|cmd_set|delete_hits|free_chunks|get_hits|mem_requested|total_chunks|total_pages|used_chunks)[^_]" >$tmp_stats
 show_crosstab $tmp_stats 3 2 Stats_slab Slab 4 _ROW_,chunk_size,chunks_per_page
 echo ""
 
 # More item stats
 header "ITEM statistics"
-echo stats items |nc -N $memcache_server 11211 |grep "STAT items:[0-9]" |tr ':' ' ' |egrep "[^_]age|evicted|evicted_time|evicted_unfetched|expired_unfetched|number|outofmemory|reclaimed[^_]" >$tmp_stats
+printf "stats items\nquit\n" |nc $memcache_server 11211 |grep "STAT items:[0-9]" |tr ':' ' ' |egrep "[^_]age|evicted|evicted_time|evicted_unfetched|expired_unfetched|number|outofmemory|reclaimed[^_]" >$tmp_stats
 show_crosstab $tmp_stats 4 3 Stats_etc Slab 5 _ROW_,age,age_hot,age_warm,evicted_time
 
 # Cleanup
