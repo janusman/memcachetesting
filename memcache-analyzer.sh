@@ -164,6 +164,7 @@ Usage: $0 [optional arguments/flags]
 
 Optional arguments:
 --dump-file=[file]        Specify an existing dump file.
+--dump-contents           Dump the memcache items, each into a single file, onto /tmp/memcache-dump-data
 --grep=[searchstring]     Only report on cache IDs that match the searchstring. Default: '.' (match all)
 --server=[server]         Specify a server to connect to. Default is localhost.
 --list-keys               Don't analyze, dump matching keys.
@@ -179,9 +180,11 @@ EOF
 FLAG_LIST_KEYS=0
 FLAG_RAW=0
 FLAG_GET=0
+FLAG_DUMP_CONTENTS=0
 DUMP_FILE=""
 GREPSTRING="."
 FLAG_REFRESH=0
+ok=1
 
 if [ "${1:-x}" = x ]
 then
@@ -212,6 +215,9 @@ do
     --)
       break
       ;;
+    --dump-contents)
+      FLAG_DUMP_CONTENTS=1
+      ;;
     --dump-file=*)
       DUMP_FILE=`echo "$1" |cut -f2 -d=`
       ;;
@@ -236,10 +242,12 @@ do
     --*)
       # error unknown (long) option $1
       echo "${COLOR_RED}Unknown option $1${COLOR_NONE}"
+      ok=0
       ;;
     -?)
       # error unknown (short) option $1
       echo "${COLOR_RED}Unknown option $1${COLOR_NONE}"
+      ok=0
       ;;
 
   # Split apart combined short options
@@ -259,6 +267,11 @@ do
 
   shift
 done
+
+if [ $ok -eq 0 ]
+then
+  exit 1
+fi
 
 # Determine the memcache server
 if [ "${MEMCACHE_SERVER:-x}" = "x" ]
@@ -371,6 +384,59 @@ function parse_dump() {
     }
   }'
 }
+
+if [ $FLAG_DUMP_CONTENTS -eq 1 ]
+then
+  echo "Dumping memcache contents..." >&2
+  php -r '
+    $mc = new Memcached;
+    $mc->addServer("'$memcache_server'", 11211);
+
+    $cmd = "awk \"{ print \\$3 }\" '$tmp_dump'";
+    $descriptorspec = array(
+      0 => array("pipe", "r"),  // stdin
+      1 => array("pipe", "w"),  // stdout
+      2 => array("pipe", "w")   // stderr
+    );
+
+    // Spawn the process
+    $process = proc_open($cmd, $descriptorspec, $pipes);
+    $dest_dir = "/tmp/memcache-dump-data";
+    @mkdir($dest_dir);
+
+    if (is_resource($process)) {
+        // Close the stdin pipe because we do not need to send any input
+        fclose($pipes[0]);
+
+        // Read the stdout line by line
+        while ($line = fgets($pipes[1])) {
+            // Process the line
+            $line = trim($line); // remove any trailing newlines or whitespaces
+            // Do something with $line here
+            $dest_file = "$dest_dir/$line";
+            echo "Writing: $dest_file" . PHP_EOL;
+            file_put_contents($dest_file, print_r($mc->get($line), TRUE));
+        }
+        fclose($pipes[1]);  // Close the stdout pipe
+
+        // Optionally, capture stderr output
+        $errors = stream_get_contents($pipes[2]);
+        fclose($pipes[2]);  // Close the stderr pipe
+
+        // Its important you close any pipes before calling proc_close in order to avoid a deadlock
+        $return_value = proc_close($process);
+
+        // Check if there were any errors
+        if (!empty($errors)) {
+            // Handle errors here
+            echo "Error output: " . $errors . PHP_EOL;
+        }
+
+        echo "Command returned $return_value\n";
+    }
+  '
+  exit 0
+fi
 
 parse_dump $tmp_dump >$tmp_parsed
 echo "Parsed file is: $tmp_parsed"
