@@ -19,14 +19,11 @@ COLOR_BACKGROUND_WHITE=$(tput setab 7)
 SCRIPT_FOLDER="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd $SCRIPT_FOLDER
 
-tmp_dump="/tmp/memcache-dump"
-tmp_parsed="/tmp/memcache-dump-parsed"
-tmp_parsed_prefix="/tmp/memcache-dump-parsed-prefix"
-tmp_stats="/tmp/memcache-stats"
+default_dump_folder="/tmp/mcspy-dump"
 
 function cleanup() {
   echo "Cleaning up temporary files"
-  rm 2>/dev/null $tmp_parsed $tmp_parsed_prefix $tmp_stats
+  rm 2>/dev/null $tmp_parsed_prefix $tmp_stats
 }
 
 function header() {
@@ -156,20 +153,32 @@ function show_crosstab() {
   echo ""
 }
 
+function show_warn() {
+  echo "${COLOR_YELLOW}$1${COLOR_NONE}"
+}
+function show_error() {
+  echo "${COLOR_RED}$1${COLOR_NONE}"
+}
+
 function showhelp() {
   cat <<EOF
 Inspects memcache usage by Drupal.
 
-Usage: $0 [optional arguments/flags]
+Usage: $0 command [arguments/flags]
+
+Commands:
+ report:contents         Count items according to Drupal.
+ report:stats            Report memcache slab/item statistics.
+ dump:keys               Dump memcache keys.
+ dump:contents           Dump the memcache items, each into a single file, onto the output folder (see --dump-folder)
+ dump:item               Fetches and dumps a single item from memcache.
 
 Optional arguments:
---dump-file=[file]        Specify an existing dump file.
---dump-contents           Dump the memcache items, each into a single file, onto /tmp/memcache-dump-data
+--dump-folder=[file]      Specify the dump folder path. Default: $default_dump_folder
 --grep=[searchstring]     Only report on cache IDs that match the searchstring. Default: '.' (match all)
 --server=[server]         Specify a server to connect to. Default is localhost.
---list-keys               Don't analyze, dump matching keys.
+--list-keys | dump-keys   Don't analyze, dump matching keys.
 --raw                     Only when --list-keys is used, don't parse keys.
---item [cache-id]         Fetches and dumps a single item from memcache.
 EOF
 }
 
@@ -179,20 +188,12 @@ EOF
 # Defaults
 FLAG_LIST_KEYS=0
 FLAG_RAW=0
-FLAG_GET=0
-FLAG_DUMP_CONTENTS=0
 DUMP_FILE=""
 GREPSTRING="."
 FLAG_REFRESH=0
+COMMAND=""
 ok=1
-
-if [ "${1:-x}" = x ]
-then
-  showhelp
-  echo
-  echo "${COLOR_YELLOW}PRESS [ENTER] FOR FULL REPORT, CTRL-C to quit${COLOR_NONE}"
-  read
-fi
+DUMP_FOLDER=$default_dump_folder
 
 # Get options
 # http://stackoverflow.com/questions/402377/using-getopts-in-bash-shell-script-to-get-long-and-short-command-line-options/7680682#7680682
@@ -215,20 +216,32 @@ do
     --)
       break
       ;;
-    --dump-contents)
-      FLAG_DUMP_CONTENTS=1
+    report:contents)
+      COMMAND=$1
+      ;;
+    report:stats)
+      COMMAND=$1
+      ;;
+    dump:contents)
+      COMMAND=$1
+      ;;
+    dump:keys)
+      COMMAND=$1
+      ;;
+    dump:item)
+      COMMAND=$1
+      ;;
+    --dump-folder=*)
+      DUMP_FOLDER=`echo "$1" |cut -f2 -d=`
       ;;
     --dump-file=*)
       DUMP_FILE=`echo "$1" |cut -f2 -d=`
       ;;
-    --grep=* | --find=*)
+    --grep=* | --find=* | --search=*)
       GREPSTRING=`echo "$1" |cut -f2 -d=`
       ;;
     --server=*)
       MEMCACHE_SERVER=`echo "$1" |cut -f2 -d=`
-      ;;
-    --list-keys | --keys)
-      FLAG_LIST_KEYS=1
       ;;
     --refresh | --cleanup)
       FLAG_REFRESH=1
@@ -236,17 +249,14 @@ do
     --raw )
       FLAG_RAW=1
       ;;
-    --item | --get)
-      FLAG_GET=1
-      ;;
     --*)
       # error unknown (long) option $1
-      echo "${COLOR_RED}Unknown option $1${COLOR_NONE}"
+      show_error "Unknown option $1"
       ok=0
       ;;
     -?)
       # error unknown (short) option $1
-      echo "${COLOR_RED}Unknown option $1${COLOR_NONE}"
+      show_error "Unknown option $1"
       ok=0
       ;;
 
@@ -273,61 +283,73 @@ then
   exit 1
 fi
 
+if [ "${COMMAND:-x}" = x ]
+then
+  show_warn "No command given."
+  showhelp
+  exit 0
+fi
+
+function mcrouter_get_servers() {
+  printf "get __mcrouter__.preprocessed_config\nquit\n" | nc -v -w1 -q1 "localhost" "11211" 2>&1 2>/dev/null |grep 11211 |cut -f2 -d'"' |cut -f1,2 -d:
+}
+
 # Determine the memcache server
 if [ "${MEMCACHE_SERVER:-x}" = "x" ]
 then
-  memcache_server=localhost #$(hostname -s)
-  # On ACN?
-  if [ ${HOME:-x} = "/home/clouduser" ]
+  memcache_server=localhost
+  # Using mcrouter?
+  if [ `mcrouter_get_servers | grep -c .` -gt 0 ]
   then
-    memcache_server=`printf "get __mcrouter__.preprocessed_config\nquit\n" | nc -v -w1 -q1 "localhost" "11211" 2>&1 2>/dev/null |grep 11211 |cut -f2 -d'"' |cut -f1 -d: |head -1`
+    show_warn "Detected mcrouter at localhost:11211, available memcache instances:"
+    mcrouter_get_servers |paste -d, -s
+    # Pick first one
+    memcache_server=`mcrouter_get_servers |head -1`
   fi
 else
   memcache_server=$MEMCACHE_SERVER
 fi
 echo "Using memcache server=$memcache_server"
 
+if [ ! -r $DUMP_FOLDER ]
+then
+  mkdir $DUMP_FOLDER 2>/dev/null
+  if [ $? -gt 0 ]
+  then
+    show_error "ERROR: Can't create $DUMP_FOLDER"
+    exit 1
+  fi
+fi
+
+tmp_dump="$DUMP_FOLDER/memcache-key-dump-raw.txt"
+tmp_parsed="$DUMP_FOLDER/memcache-key-dump-parsed.txt"
+tmp_parsed_prefix="$DUMP_FOLDER/memcache-key-dump-parsed-prefix.txt"
+tmp_stats="$DUMP_FOLDER/memcache-stats"
 
 # Dump a single item
-if [ $FLAG_GET = 1 ]
+if [ $COMMAND = "dump:item" ]
 then
   echo "Dumping item $GREPSTRING"
   echo "-------------------------------------"
   echo ""
-  #drush --root=/var/www/html/${AH_SITE_NAME}/docroot ev '
-  #  $m = \Drupal::service("memcache.factory")->get();
-  #  $cid="'"$GREPSTRING"'";
-  #  print_r($m->getMemcache()->get($cid));
-  #'
   php -r '
     $mc = new Memcached;
     $mc->addServer("'$memcache_server'", 11211);
     print_r($mc->get("'"$GREPSTRING"'"));
-  ' | less
+  ' | more
   exit 0
 fi
 
-if [ ${DUMP_FILE:-x} != x ]
+
+if [ $FLAG_REFRESH -eq 1 -o ! -s $tmp_dump -o -s $tmp_dump ]
 then
-  echo "Using dump file $DUMP_FILE"
-  grep "$GREPSTRING" $DUMP_FILE >$tmp_dump
-  if [ $? -gt 0 ]
-  then
-    echo "Error: could not use file $DUMP_FILE"
-    cleanup
-    exit 1
-  fi
-else
-  if [ $FLAG_REFRESH -eq 1 -o ! -s $tmp_dump -o -s $tmp_dump ]
-  then
-    echo "Dumping memcache data to file $tmp_dump"
-    # Gather data from memcache
-    rm -f $tmp_dump 2>/dev/null
-    for i in {1..42}
-    do
-      printf "stats cachedump $i 0\nquit\n" | nc $memcache_server 11211 | grep "$GREPSTRING" | grep -v "END" | awk '{ print "SLAB='$i' " $0 }' >>$tmp_dump
-    done
-  fi
+  echo "Dumping memcache data to file $tmp_dump"
+  # Gather data from memcache
+  rm -f $tmp_dump 2>/dev/null
+  for i in {1..42}
+  do
+    printf "stats cachedump $i 0\nquit\n" | nc $memcache_server 11211 | grep "$GREPSTRING" | grep -v "END" | awk '{ print "SLAB='$i' " $0 }' >>$tmp_dump
+  done
 fi
 
 if [ ! -s $tmp_dump ]
@@ -350,12 +372,6 @@ echo "Total memcache items: $num_total"
 # 10	local.test.sede.sede	config	paragraphs.paragraphs_type.price_category
 # 11	local.test.sede.sede	config	core.base_field_override.media.file.path
 # 11	local.test.sede.sede	config	field.storage.node.field_show_hotline_visible
-# 11	local.test.sede.sede	config	language.en%3Aviews.view.comments_recent
-# 11	local.test.sede.sede	config	metatag.metatag_defaults.front
-# 11	local.test.sede.sede	config	system.action.pathauto_update_alias_user
-# 12	local.test.sede.sede	config	core.base_field_override.node.cards.promote
-# 12	local.test.sede.sede	config	core.entity_view_display.block_content.basic.default
-# 12	local.test.sede.sede	config	core.entity_view_display.paragraph.image.default
 # { ... snip ... }
 function parse_dump() {
   # 2 formats:
@@ -385,7 +401,7 @@ function parse_dump() {
   }'
 }
 
-if [ $FLAG_DUMP_CONTENTS -eq 1 ]
+if [ $COMMAND = "dump:contents" ]
 then
   echo "Dumping memcache contents..." >&2
   php -r '
@@ -401,7 +417,7 @@ then
 
     // Spawn the process
     $process = proc_open($cmd, $descriptorspec, $pipes);
-    $dest_dir = "/tmp/memcache-dump-data";
+    $dest_dir = "'$DUMP_FOLDER'/content-dump";
     @mkdir($dest_dir);
 
     if (is_resource($process)) {
@@ -409,21 +425,28 @@ then
         fclose($pipes[0]);
 
         // Read the stdout line by line
+        $num_items = 0;
         while ($line = fgets($pipes[1])) {
             // Process the line
-            $line = trim($line); // remove any trailing newlines or whitespaces
-            // Do something with $line here
+            $line = trim($line);
             $dest_file = "$dest_dir/$line";
-            echo "Writing: $dest_file" . PHP_EOL;
+            // Get item from memcache & store it
             file_put_contents($dest_file, print_r($mc->get($line), TRUE));
+
+            $num_items++;
+            // "Progress-bar"
+            if ($num_items%20) {
+              echo ".";
+            }
+
         }
+        echo PHP_EOL . "$num_items items written to $dest_dir" . PHP_EOL;
         fclose($pipes[1]);  // Close the stdout pipe
 
         // Optionally, capture stderr output
         $errors = stream_get_contents($pipes[2]);
         fclose($pipes[2]);  // Close the stderr pipe
 
-        // Its important you close any pipes before calling proc_close in order to avoid a deadlock
         $return_value = proc_close($process);
 
         // Check if there were any errors
@@ -431,8 +454,6 @@ then
             // Handle errors here
             echo "Error output: " . $errors . PHP_EOL;
         }
-
-        echo "Command returned $return_value\n";
     }
   '
   exit 0
@@ -442,7 +463,7 @@ parse_dump $tmp_dump >$tmp_parsed
 echo "Parsed file is: $tmp_parsed"
 echo ""
 
-if [ $FLAG_LIST_KEYS -eq 1 ]
+if [ $COMMAND = "dump:keys" ]
 then
   dumpfile=$tmp_parsed
   if [ $FLAG_RAW -eq 1 ]
@@ -452,59 +473,61 @@ then
 
   if [ "$GREPSTRING" = "." ]
   then
-    cat $dumpfile
+    (printf "Slab\tPrefix\tBin\tId\n"; cat $dumpfile) | column -t
   else
-    egrep --color "^|$GREPSTRING" $dumpfile
+    (printf "Slab\tPrefix\tBin\tId\n"; egrep --color "^|$GREPSTRING" $dumpfile) | column -t
   fi
   exit 0
 fi
 
-if [ "${1:-x}" = "--no-report" -o ${2:-x} = "--no-report" ]
+# Build report
+if [ "$COMMAND" = "report:contents" ]
 then
-  echo "Called with --no-report argument, exiting."
+
+  echo "Count by prefix"
+  echo "---------------"
+  awk '{ print $2 }' $tmp_parsed |sort |uniq -c |sort -nr |head
+
+  show_crosstab $tmp_parsed 2 3 Prefix Bin
+  show_crosstab $tmp_parsed 2 1 Prefix Slab
+
+  # Get prefixes, but sorted by most-to-least frequent
+  prefixes=`cat $tmp_parsed |cut -f2 |sort |uniq -c |sort -nr |awk '{print $2 }'`
+
+  for nom in $prefixes
+  do
+
+    echo "== Single Prefix analysis: prefix = $nom =================";
+    echo ""
+
+    # Filter the parsed file just to this bin.
+    awk -v prefix="$nom" '($2==prefix) { print }' $tmp_parsed >$tmp_parsed_prefix
+
+    # Crosstab.
+    show_crosstab $tmp_parsed_prefix 3 1 Cache_Bins Slab
+
+    # Top Patterns.
+    echo "Top patterns observed:"
+    (echo "# Cache_bin => Pattern"; echo "---- ---- -- ----"; awk '{ print $3 " => " $4 }' $tmp_parsed_prefix |awk 'length($0) < 300 { print }' | php -r '$result = urldecode(trim(stream_get_contents(STDIN))); print_r($result);' |sed -e 's/\.html_[a-zA-Z0-9_-]\{6,100\}/.html_{hash-value}/g' |sed -e 's/\.html\.twig_[a-zA-Z0-9_-]\{6,100\}/.html.twig_{hash-value}/g' | sed -e 's/[0-9a-f]\{6,100\}/{hex-hash-value}/g' -e 's/:[a-zA-Z0-9_-]*[A-Z][a-zA_Z0-9_-]*/:{hash}/g' | sed -e 's/^views_data:[a-z0-9_]\{2,50\}/views_data:{view-id}/g'  | sed -e 's/^views\.view\.[a-z0-9_]\{2,50\}/views.view.{view-id}/g' |sed -e 's/[0-9][0-9]*/{num}/g' |sort |uniq -c |sort -nr |head -20) |column -t
+    echo ""
+  done
+  cleanup
   exit 0
 fi
 
-echo "Count by prefix"
-echo "---------------"
-awk '{ print $2 }' $tmp_parsed |sort |uniq -c |sort -nr |head
-
-show_crosstab $tmp_parsed 2 3 Prefix Bin
-show_crosstab $tmp_parsed 2 1 Prefix Slab
-
-# Get prefixes, but sorted by most-to-least frequent
-prefixes=`cat $tmp_parsed |cut -f2 |sort |uniq -c |sort -nr |awk '{print $2 }'`
-
-for nom in $prefixes
-do
-
-  echo "== Single Prefix analysis: prefix = $nom =================";
+if [ $COMMAND = "report:stats" ]
+then
+  # Get slab stats
+  header "SLAB statistics"
+  printf "stats slabs\nquit\n" |nc $memcache_server 11211 |grep "STAT [0-9]" |tr ':' ' ' |egrep "[^_](chunk_size|chunks_per_page|cmd_set|delete_hits|free_chunks|get_hits|mem_requested|total_chunks|total_pages|used_chunks)[^_]" >$tmp_stats
+  show_crosstab $tmp_stats 3 2 Stats_slab Slab 4 _ROW_,chunk_size,chunks_per_page
   echo ""
 
-  # Filter the parsed file just to this bin.
-  awk -v prefix="$nom" '($2==prefix) { print }' $tmp_parsed >$tmp_parsed_prefix
+  # More item stats
+  header "ITEM statistics"
+  printf "stats items\nquit\n" |nc $memcache_server 11211 |grep "STAT items:[0-9]" |tr ':' ' ' |egrep "[^_]age|evicted|evicted_time|evicted_unfetched|expired_unfetched|number|outofmemory|reclaimed[^_]" >$tmp_stats
+  show_crosstab $tmp_stats 4 3 Stats_etc Slab 5 _ROW_,age,age_hot,age_warm,evicted_time
 
-  # Crosstab.
-  show_crosstab $tmp_parsed_prefix 3 1 Cache_Bins Slab
-
-  # Top Patterns.
-  echo "Top patterns observed:"
-  (echo "# Cache_bin => Pattern"; echo "---- ---- -- ----"; awk '{ print $3 " => " $4 }' $tmp_parsed_prefix |awk 'length($0) < 300 { print }' | php -r '$result = urldecode(trim(stream_get_contents(STDIN))); print_r($result);' |sed -e 's/\.html_[a-zA-Z0-9_-]\{6,100\}/.html_{hash-value}/g' |sed -e 's/\.html\.twig_[a-zA-Z0-9_-]\{6,100\}/.html.twig_{hash-value}/g' | sed -e 's/[0-9a-f]\{6,100\}/{hex-hash-value}/g' -e 's/:[a-zA-Z0-9_-]*[A-Z][a-zA_Z0-9_-]*/:{hash}/g' | sed -e 's/^views_data:[a-z0-9_]\{2,50\}/views_data:{view-id}/g'  | sed -e 's/^views\.view\.[a-z0-9_]\{2,50\}/views.view.{view-id}/g' |sed -e 's/[0-9][0-9]*/{num}/g' |sort |uniq -c |sort -nr |head -20) |column -t
-  echo ""
-done
-
-# Get slab stats
-header "SLAB statistics"
-printf "stats slabs\nquit\n" |nc $memcache_server 11211 |grep "STAT [0-9]" |tr ':' ' ' |egrep "[^_](chunk_size|chunks_per_page|cmd_set|delete_hits|free_chunks|get_hits|mem_requested|total_chunks|total_pages|used_chunks)[^_]" >$tmp_stats
-show_crosstab $tmp_stats 3 2 Stats_slab Slab 4 _ROW_,chunk_size,chunks_per_page
-echo ""
-
-# More item stats
-header "ITEM statistics"
-printf "stats items\nquit\n" |nc $memcache_server 11211 |grep "STAT items:[0-9]" |tr ':' ' ' |egrep "[^_]age|evicted|evicted_time|evicted_unfetched|expired_unfetched|number|outofmemory|reclaimed[^_]" >$tmp_stats
-show_crosstab $tmp_stats 4 3 Stats_etc Slab 5 _ROW_,age,age_hot,age_warm,evicted_time
-
-# Cleanup
-cleanup
-
-echo "Done!"
+  cleanup
+  exit 0
+fi
