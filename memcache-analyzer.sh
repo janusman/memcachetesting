@@ -304,7 +304,7 @@ then
     show_warn "Detected mcrouter at localhost:11211, available memcache instances:"
     mcrouter_get_servers |paste -d, -s
     # Pick first one
-    memcache_server=`mcrouter_get_servers |head -1`
+    memcache_server=`mcrouter_get_servers |head -1 |cut -f1 -d:`
   fi
 else
   memcache_server=$MEMCACHE_SERVER
@@ -478,7 +478,7 @@ then
     (printf "Slab\tPrefix\tBin\tId\n"; egrep --color "^|$GREPSTRING" $dumpfile) | column -t
   fi
   exit 0
-fi
+fiq
 
 # Build report
 if [ "$COMMAND" = "report:contents" ]
