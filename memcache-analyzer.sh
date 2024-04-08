@@ -408,7 +408,7 @@ then
     $mc = new Memcached;
     $mc->addServer("'$memcache_server'", 11211);
 
-    $cmd = "awk \"{ print \\$3 }\" '$tmp_dump'";
+    $cmd = "grep \"'$GREPSTRING'\" '$tmp_dump' | awk \"{ print \\$3 }\"";
     $descriptorspec = array(
       0 => array("pipe", "r"),  // stdin
       1 => array("pipe", "w"),  // stdout
@@ -478,7 +478,7 @@ then
     (printf "Slab\tPrefix\tBin\tId\n"; egrep --color "^|$GREPSTRING" $dumpfile) | column -t
   fi
   exit 0
-fiq
+fi
 
 # Build report
 if [ "$COMMAND" = "report:contents" ]
